@@ -1,0 +1,473 @@
+======Delploying Your Application Using Docker======
+Docker is software for manage container implementations efficiently.
+Docker was initially built on top of Linux containers (LXC). Later docker replaced LXC with its own container runtime libcontainer (now part of "runc" - CLI for spinning up containers that follow all OCI specifications), which use linux kernel futures.
+OCI: Open Container Initiative is an open industry standard for container runtime and specifications.
+Apart from just being a container technology, Docker has well-defined wrapper components that make packaging applications easy.
+Once you package a container with required applications using Docker, you can run it on any other host which has docker installed.
+Docker uses a Copy-on-write union file system for its image storage. When changes are made to a container, only the changes will be written to disk using copy on write model.
+
+On the low-level the Docker is separated into following three different components.
+- Docker Engine (dockerd) - docker daemon, an API interface, and Docker CLI.
+- docker-containerd (containerd) - system daemon service. Responsible for downloading the docker images and running them as a container. Exposes its API to receive instructions from the dockerd service.
+- docker-runc (runc) - container runtime. Responsible for creating the namespaces and cgroups required for a container.
+
+On the high-level the Docker is separated into few different components.
+- Docker Daemon - receives the commands from the Docker client through CLI or REST API. Can be on any other hosts. By default, listens to the docker.sock UNIX socket. To access the docker API remotely, you need to expose it over a host port. F.e. running Docker as Jenkins agents. If you do not have builds happening continuously, the resource utilization of the Jenkins agents is very less, in this case is better to use ephemeral Docker containers as Jenkins agents for better resource utilization.
+To run docker inside docker, use docker.sock from the host machine.
+
+- Docker Client
+- Docker Images - building blocks of Docker needed to run container. Contain the OS libraries, dependencies, tools to run application. To run an Nginx web server as a Ubuntu container, you will create a Docker image with the Nginx binary and OS libraries required to run Nginx.
+Docker used dockerfile(text file with syntax of one command per line) to build the images. Every command in dockerfile added the layer inside image. The container is upper writable layer of image.
+Every image should be created from the official base image, available for lot of linux systems in https://docs.docker.com/docker-hub/official_images/ docker docs section.
+Top layer of image is writable(used by the running container), other layers are read only.
+After install, the docker looks for images on public Docker hub, unless you specify a custom Docker registry in Docker settings.
+- Docker Registries - repository for images sharing. When using docker in enterprise networks/project, set up your own docker registries, all cloud providers have their own container registry services.
+- Docker Containers - execution environment for Docker, created from images. Image writable layer. You can package your applications in a container, commit it, and use it as parent image to build more containers from it.
+Containers can be started, stopped, committed, and terminated(without commiting, all changes will be lost). Not recommended to make changes to a running container(do it only for testing needs).
+Containers can be linked together to form tiered application architecture. Hosting hight scalable applications with docker will easier using kubernetes.
+
+Once the image gets backed, it will be the same in all the environments. You can start making changes in dev env and re-bake the container image.
+
+
+===Docker installation===
+
+For local machine, in "sudo su -" mode
+-> apt clean && apt update
+-> apt remove docker docker-engine docker.io containerd runc ... in case of prebuilded one
+
+===Install Docker Dependencies===
+
+-> apt install ca-certificates curl gnupg lsb-release ... from docker official site(2021)
+... all was preinstalled
+-> apt install apt-transport-https gnupg-agent software-properties-common -y ... unique from ebook
+... "transport-https", allow download packages from the https repositories
+
+-> curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg ... add Docker's official GPG key
+-> echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null ... set up the stable repository
+
+Last two commands above from the official docker site docs + removed "sudo" , cause in "sudo su -" mode (2021)
+
+===Install Docker Engine===
+
+-> apt update -y
+-> apt install docker-ce docker-ce-cli containerd.io -y
+Docker Community Edition installed.
+
+-> systemctl status docker
+<- ... active (running) ... => Ctrl+c to close status
+Docker is active and running. Not "sudo su -" mode need to use "sudo" to run Docker commands.
+
+===containers===
+Docker is a tool set to create containers and version it. Container is directory in file system allow to install another OS(operating system) in it.
+Entire OS needs much more than just the files, and Docker uses iptables for the networking part. Docker uses commands, to manage some redirects via NAT rules.
+
+-> lsns ... show linux machine namespaces list(part of linux kernel futures), which is parameters/properties used in container structure to separate the container(separated process too) inside determined boundary, from the host machine and the other containers, and allow each container have separated environment (ip's, users, mount points, etc.)
+<-
+        NS TYPE   NPROCS   PID USER             COMMAND
+4026531835 cgroup    113     1 root             /sbin/init
+4026531836 pid       113     1 root             /sbin/init
+4026531837 user      113     1 root             /sbin/init
+4026531838 uts       110     1 root             /sbin/init
+4026531839 ipc       113     1 root             /sbin/init
+4026531840 mnt       105     1 root             /sbin/init
+4026531992 net       113     1 root             /sbin/init
+...
+Without limit the CPU & Memory resource of a container, single container might end up using all the host resources leaving other containers to crash because of resource unavailability.
+
+You cannot run a Windows container on a Linux host because there is no Linux Kernel support for Windows.
+
+
+
+===creating Docker Containers===
+
+===Docker run command===
+Docs - https://docs.docker.com/engine/reference/commandline/run/
+run - run a command in a new container.
+Usage - docker run [OPTIONS] IMAGE [COMMAND] [ARG...]
+-t or -tty - Allocate a pseudo-TTY (terminal)
+-i or --interactive - Keep STDIN open even if not attached
+-ti - allow run commands using container terminal and see their outputs
+-d or --detach - Run container in background and print container ID
+--detach-keys - Override the key sequence for detaching a container. Worked only in case of using run command when not used -d flag. If --detach-keys added with -d as run command options, container will detached in run command execution process. And even if "docker container attach" will used later, detach keys will be default for "docker container attach" command or overridden using --detach-keys option of "docker container attach" command.
+
+-> docker run -ti centos /bin/bash
+<- Unable to find ... wait, downloading of stable image
+[root@c5eef0d073cd /]# ... terminal view, when completed
+
+Host name was changed from "devops" to "c5eef0d073cd", which is container id, used to manage the containers.
+Host name changing means we are inside container now, and commands will change container, but not VM.
+-> exit ... or Ctrl+d to exit from container
+-> docker container ls ... list of opened containers
+<- CONTAINER ID IMAGE COMMAND CREATED STATUS PORTS NAMES
+-> docker container ls -a ... list of containers
+<- ...
+CONTAINER ID   IMAGE     COMMAND       CREATED          STATUS
+c5eef0d073cd   centos    "/bin/bash"   28 minutes ago   Exited (0)
+...
+When we exit from a container, the container stops, because conception is "one container for one purpose", no need focusing at container uptime or maintaining, just delete, and create a new one.
+To make changes into container: modify container image => save image => delete current container => start a new one(using midified image).
+This also applies for the container configurations. To change a redirect or any other parameters: create a new container image with required parameters => save image => run a new container(using modified image).
+
+-p or --publish - Publish a container's port(s) to the host
+F.e. -p 5000:5000 is mapping the port 5000 of local machine to port 5000 of container.
+--name - Assign a name to the container
+
+-> docker run -ti --name python_app -p 5000:5000 centos /bin/bash
+[root@d7a685ee58eb /]# ... we are inside new container again
+
+Docker no need download CentOS image, alredy stored in Docker local repository, and creation was faster.
+
+"yum" is CentOS alternative of Ubuntu "apt". Allow to download packages from remote repositories.
+-> yum clean all && yum install python3 python3-pip -y
+<- ... Complete!
+
+-> yum install python3-is-python -y ... for comfort use "python" to run python3
+<-
+CentOS Linux 8 - AppStream 248 kB/s | 9.6 MB     00:39
+CentOS Linux 8 - BaseOS 2.0 MB/s | 8.5 MB     00:04
+CentOS Linux 8 - Extras 3.2 kB/s |  10 kB     00:03
+No match for argument: python3-is-python
+Error: Unable to find a match: python3-is-python
+
+CentOS have no this module vs Ubuntu which have. The "yum" is "apt" alternative, but global situation is not equal finally.
+
+-> python
+<- bash: python: command not found
+-> python3
+<-
+Python 3.6.8 ... exit() or Ctrl+d to quit python
+>>>
+>>> exit() ... exit back from python to container
+[root@d7a685ee58eb /]#
+
+-> python3 -m pip install flask
+Copy code from python flapp.py app above to next file. Using host machine remove connection you can do it using mouse => copypaste, after execute next command => enter => EOF => enter. Or line by line, using enter, and not forget about spaces(code indentation). Python have strict rules.
+-> cat <<EOF > /srv/flapp.py
+<-
+> from flask import Flask
+> flapp = Flask(__name__)
+> @flapp.route("/")
+> def index():
+>  return "DevOps with Linux"
+> if __name__ == "__main__":
+>  flapp.run(debug=True,host="0.0.0.0")
+> EOF
+
+-> python3 /srv/flapp.py
+<-
+ * Serving Flask app 'flapp' (lazy loading)
+ * Environment: production
+   WARNING: This is a development server. Do not use it in a production deployment.
+   Use a production WSGI server instead.
+ * Debug mode: on
+ * Running on all addresses.
+   WARNING: This is a development server. Do not use it in a production deployment.
+ * Running on http://172.17.0.2:5000/ (Press CTRL+C to quit)
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 606-183-487
+
+Using browser http://newip:5000
+<- DevOps with Linux ... success
+On server(remote vm machine) "ip a" to show ip, without changes on host machine.
+
+Summary:
+-container running
+-application flapp.py inside container
+-dependencies were installed
+-there is command to run application
+
+=> Ctrl+c - stop application
+=> Ctrl+d or exit - to close the container
+
+Again in "sudo su -" mode as root@devops:~# on host machine connected to remote server using ssh.
+-> docker container ls -a
+<-
+CONTAINER ID   IMAGE     COMMAND     STATUS     NAMES
+d7a685ee58eb   centos    "/bin/bash"   Exited (0)         python_app
+c5eef0d073cd   centos    "/bin/bash"   Exited (0)         hardcore_almeida
+
+===Docker commit command===
+Docs - https://docs.docker.com/engine/reference/commandline/commit/
+commit - Create a new image from a container’s changes
+Usage - docker commit [OPTIONS] CONTAINER [REPOSITORY[:TAG]]
+
+-> docker commit python_app my_first_image ... create image from CHANGES
+<- sha256:e480f3b0332b7724ea5882ec711877beafa7eef45675087cc58caa3c1b885236
+
+First parameter of commit is one container, running or stopped allowed. Second parameter is name for new Docker image.
+
+===Docker ps command===
+Docs - https://docs.docker.com/engine/reference/commandline/ps/
+ps - List containers
+Usage - docker ps [OPTIONS]
+-q - contaners ID only
+-a - all containers (default shows just running)
+-f - Filter output based on conditions provided
+Example: show all containers , show only ID
+docker ps -aq
+
+===Docker images command===
+Docs - https://docs.docker.com/engine/reference/commandline/images/
+images - List images
+Usage - docker images [OPTIONS] [REPOSITORY[:TAG]]
+-q or --quiet - Only show image IDs
+
+-> docker images
+<-
+REPOSITORY       TAG       IMAGE ID       CREATED          SIZE
+my_first_image   latest    e480f3b0332b   15 minutes ago   294MB
+centos           latest    5d0da3dc9764   8 weeks ago      231MB
+
+You can create so many instances of your
+application as you want, using command:
+-> docker run -ti -p 5000:5000 my_first_image python3 /srv/flapp.py ... Ctrl+c to quit application and return to "sudo su -" mode as root@devops:~# in our case.
+Using browser http://newip:5000 ... DevOps with Linux ... success.
+
+To publish your image that download into any other server, create an account in the Docker Hub https://hub.docker.com/ and send your image there.
+Use the Docker login, to authenticate into your repository.
+Your Docker account user name used to specify where you will store that image.
+
+===Docker login command===
+Docs - https://docs.docker.com/engine/reference/commandline/login/
+login - Log in to a Docker registry
+Usage - docker login [OPTIONS] [SERVER]
+-u or --username - Username, which is docker ID
+--password-stdin - Take the password from stdin, to hide password from terminal history
+Example: login to a self-hosted registry, using server name.
+docker login localhost:8080
+Example: login Docker non-interactively, using STDIN.
+cat ~/my_password.txt | docker login --username foo --password-stdin
+
+Docker usage credentials managing recommendations placed on
+https://docs.docker.com/engine/reference/commandline/login/#credentials-store
+
+===Docker tag command===
+Docs - https://docs.docker.com/engine/reference/commandline/tag/
+tag - Create a tag TARGET_IMAGE that refers to SOURCE_IMAGE
+Usage - docker tag SOURCE_IMAGE[:TAG] TARGET_IMAGE[:TAG]
+Example: tag a local image with name “httpd” into the “fedora” repository with tag “version1.0”.
+docker tag httpd fedora/httpd:version1.0
+Example: tag a local image with name “httpd” and tag “test” into the “fedora” repository with tag “version1.0.test”.
+docker tag httpd:test fedora/httpd:version1.0.test
+
+===Docker push command===
+Docs - https://docs.docker.com/engine/reference/commandline/push/
+push - Push an image or a repository to a registry
+Usage - docker push [OPTIONS] NAME[:TAG]
+
+Docker image name pattern allow using only "a-z0-9-_." symbols.
+
+Create account on the Docker Hub site, f.e. with Docker ID "healingdrawing".
+Docker ID also used to specify where will stored the image on Docker Hub side.
+
+Host machine in "sudo su -" mode:
+-> docker login ... sign in using credentials, f.e. Username healingdrawing
+<- WARNING! Your password will be stored unencrypted in /root/.docker/config.json.
+Configure a credential helper to remove this warning. See
+https://docs.docker.com/engine/reference/commandline/login/#credentials-store
+
+-> docker tag my_first_image healingdrawing/dummy-image
+-> docker push healingdrawing/dummy-image
+<- Using default tag: latest
+The push refers to repository [docker.io/healingdrawing/dummy-image]
+c0651d82f1e6: Pushed
+74ddd0ec08fa: Mounted from library/centos
+latest: digest: sha256:3bd... size: 741
+
+Using browser https://hub.docker.com/u/healingdrawing
+healingdrawing/dummy-image 4Downloads 0Stars
+By healingdrawing Updated 2 minutes ago
+
+The image is published for the whole world.
+
+===Docker logout command===
+Docs - https://docs.docker.com/engine/reference/commandline/logout/
+logout - Log out from a Docker registry, also remove credentials. Need "docker login" again now.
+Usage - docker logout [SERVER]
+Example: logout from a self-hosted registry
+docker logout localhost:8080
+
+-> docker logout
+<- Removing login credentials for https://index.docker.io/v1/
+
+===Docker system prune command===
+Docs - https://docs.docker.com/engine/reference/commandline/system_prune/
+system prune - Remove unused data
+Usage - docker system prune [OPTIONS]
+-f or --force - Do not prompt for confirmation
+
+===Docker attach command===
+Docs - https://docs.docker.com/engine/reference/commandline/attach/
+attach - Attach local standard input, output, and error streams to a running container.
+Means starting a terminal session within the context that the container (and any programs therein) is running.
+Allowed using container id or container name. Allows a single shell session to be attached to a container at a time.
+Keyboard input will be forwarded to the container.
+Ctrl+c will kill container.
+Ctrl+p => Ctrl+q - detach from an attached container.
+Usage - docker container attach [OPTIONS] CONTAINER
+--detach-keys - Override the key sequence for detaching a container. "ctrl-" can be combined with next following: a-z @ \\ [ _ ^.
+Example: attach using container id, and override detach keys to "ctrl-x"
+docker container attach --detach-keys="ctrl-x" container_id
+
+===Docker exec command===
+Docs - https://docs.docker.com/engine/reference/commandline/exec/
+exec - Run a command in a running container, Attach multiple shell sessions to a container. Allowed container id or container name. Ctrl-c will only terminate the executed command when running interactively vs "attach" which will kill a container.
+Usage - docker exec [OPTIONS] CONTAINER COMMAND [ARG...]
+COMMAND should be an executable, a chained or a quoted command will not work.
+-t - Allocate a pseudo-TTY (terminal)
+-i - Keep STDIN open even if not attached
+-d - Detached mode: run command in the background
+-w - Working directory inside the container
+--detach-keys - Override the key sequence for detaching a container. "ctrl-" can be combined with next following: a-z @ \\ [ _ ^.
+Example: run a programm(in this case shell) within a container "/home" directory, using container id, and detach keys overridden to "ctrl-\\" (two backward slashes) will detach container after single press.
+docker exec -i -t -w /home --detach-keys="ctrl-\\" container_id /bin/bash
+Example: this will not work
+docker exec -ti container_id "echo a && echo b"
+Example: this will work
+docker exec -ti container_id sh -c "echo a && echo b"
+
+===Docker stop command===
+Docs - https://docs.docker.com/engine/reference/commandline/stop/
+stop - Stop one or more running containers
+Usage - docker stop [OPTIONS] CONTAINER [CONTAINER...]
+-t - Seconds to wait for(used to try to) stop before killing it.
+Example: docker stop container_id
+
+===Docker kill command===
+Docs - https://docs.docker.com/engine/reference/commandline/kill/
+kill - Kill one or more running containers
+Usage - docker kill [OPTIONS] CONTAINER [CONTAINER...]
+-s - Signal to send to the container
+Example: sends a default SIGKILL signal to the container, using -s
+docker kill -s SIGKILL container_id
+
+===Docker rm command===
+Docs - https://docs.docker.com/engine/reference/commandline/rm/
+rm - Remove one or more containers
+Usage - docker rm [OPTIONS] CONTAINER [CONTAINER...]
+-f - Force the removal of a running container (uses SIGKILL)
+Example: docker rm -f container_id
+
+===Docker image rm command===
+Docs - https://docs.docker.com/engine/reference/commandline/image_rm/
+image rm - Remove one or more images
+Usage - docker image rm [OPTIONS] IMAGE [IMAGE...]
+-f or --force - !DANGER! Force removal of the image.
+Example: removing image using image id
+docker image rm image_id
+Using of id will remove all Docker images associated with this id.
+If some container is associated with Docker image, error will raised.
+Error response from daemon: conflict: unable to delete image_id (cannot be forced) - image is being used by running container container_id.
+
+Clear way is:
+1 - stop selected containers;
+2 - kill all not stopped Docker containers;
+3 - remove all unused/selected Docker images.
+Example: stop => kill container => remove image
+1 docker stop container_id
+2 docker rm container_id ... if something wrong with "stop"
+3 docker image rm image_id
+
+===Remove Docker image associated with multiple containers===
+Error response from daemon: conflict: unable to delete image_id (must be forced) - image is referenced in multiple repositories.
+1 docker ps -a -q -f "ancestor=docker_image_name" ... associated containers
+2 docker ps -a -q - "ancestor=docker_image_ name" | xargs docker stop
+3 docker ps -a -q - "ancestor=docker_image_ name" | xargs docker rm
+
+===Clean the environment===
+-> docker system prune -f ... delete all containers
+<- Total reclaimed space: 62.33MB
+-> docker container ls -a ... check the environment is cleaned
+<- CONTAINER ID  IMAGE ... NAMES
+-> docker images -q
+<- e480f3b0332b e480f3b0332b 5d0da3dc9764
+-> docker image rm $(docker image ls) ... "ls" not clear way, but work
+-> docker images -q ... show nothing, no image is no id's
+
+Check the image was pushed to the hub, by creating a container based on this image.
+-> docker run -ti -p 5000:5000 healingdrawing/dummy-image:latest python3 /srv/flapp.py
+Using browser http://newip:5000 => DevOps with Linux ... success.
+
+Was created container of a version of CentOS with python3 installed, and application flapp.py inside CentOS environment.
+
+===Creating images with Dockerfile===
+Docs - https://docs.docker.com/engine/reference/builder/#usage
+Dockerfile text file allow represent all steps of creating of Docker image.
+Do not use your root directory, /, as the PATH for your build context, as it causes the build to transfer the entire contents of your hard drive to the Docker daemon.
+
+===Dockerfile EXPOSE instruction===
+Docs - https://docs.docker.com/engine/reference/builder/#expose
+The EXPOSE instruction does not actually publish the port. It functions as a type of documentation between the person who builds the image and the person who runs the container, about which ports are intended to be published.
+To actually publish the port when running the container, use the -p flag on docker run to publish and map one or more ports, or the -P flag to publish all exposed ports and map them to high-order ports.
+
+===Dockerfile CMD instruction===
+Docs - https://docs.docker.com/engine/reference/builder/#cmd
+The CMD instruction has three forms:
+- CMD ["executable","param1","param2"] (exec form, this is the preferred form)
+- CMD ["param1","param2"] (as default parameters to ENTRYPOINT)
+- CMD command param1 param2 (shell form)
+There can only be one CMD instruction in a Dockerfile. If you list more than one CMD then only the last(shell form) CMD will take effect.
+
+===Docker build command===
+Docs - https://docs.docker.com/engine/reference/commandline/build/
+build - Build an image from a Dockerfile
+Usage - docker build [OPTIONS] PATH | URL | -
+The "PATH" specifies where to find the files for the "context" of the build on the Docker daemon.
+-f - Name of the Dockerfile (Default is 'PATH/Dockerfile')
+-t - Name and optionally a tag in the 'name:tag' format
+-q - Suppress the build output and print image ID on success
+Example: build docker image using "dockerfile" and name with tag "image_from_dockerfile:latest"
+docker build -f dockerfile -t image_from_dockerfile:latest
+
+Still inside "sudo su -" , f.e. as "root@devops:~#".
+-> pwd
+<- /root
+-> ls
+<- flapp.py  latest.tar.gz  __pycache__  snap
+-> vim dockerfile => Esc => i to run insert mode of vim => copypaste:
+from centos
+maintainer kyznector@gmail.com
+run yum clean all
+run yum install python3 python3-pip -y
+run python3 -m pip install flask
+copy flapp.py /srv/flapp.py
+expose 5000
+cmd ["python3","/srv/flapp.py"]
+=> Esc => ZZ to save file and close vim.
+-> ls
+<- dockerfile  flapp.py  latest.tar.gz  __pycache__  snap
+
+The commands inside "dockerfile" mean:
+from - specify the base image.
+maintainer - who is maintaining the image/support email.
+run - execute the commands within the container.
+copy - copy one file from the local machine to the container. The "flapp.py" is present in filesystem, checked above.
+expose - documentation about which ports are intended to be published.
+cmd - will ensure the container running.
+
+The commands in the "dockerfile" represent the same commands, that were executed in the container.
+
+-> docker build -f dockerfile -t image_from_dockerfile .
+<- ...
+Successfully built 2162e0419746 ... this is container container id (permanent).
+Successfully tagged image_from_dockerfile:latest
+
+Was used PATH ".", which in this case is similar of using "/root" as PATH.
+-> pwd
+<- /root
+-> docker build -q -f dockerfile -t image_from_dockerfile_root_placed /root
+<- sha256:2162e04197468bf218ebfab54f540ea1208c90a15ef8f9e5baf41b1c4dd05783
+Was used PATH "/root" with new name "image_from_dockerfile_root_placed".
+
+-> docker images
+<- REPOSITORY                          TAG       IMAGE ID
+image_from_dockerfile               latest    2162e0419746
+image_from_dockerfile_root_placed   latest    2162e0419746
+healingdrawing/dummy-image          latest    e480f3b0332b
+centos                              latest    5d0da3dc9764
+Two images was created with different names but both have same IMAGE ID.
+
+-> docker run -p 5000:5000 image_from_dockerfile
+Using browser http://newip:5000 ... DevOps with Linux ... success.
+
